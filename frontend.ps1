@@ -15,7 +15,6 @@ try {
         $vitePath = Join-Path (Get-Location) 'node_modules/vite/bin/vite.js'
         if (!(Test-Path $vitePath)) { throw 'Run ./frontend.ps1 install first.' }
         switch ($Action) {
-            'dev' { & $nodePath $vitePath }
             'dev' {
                 $occupied = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
                 if ($occupied) {

@@ -3,7 +3,8 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
-  const apiPrefix = env.VITE_APP_BASE_API
+  const apiPrefix = env.VITE_APP_BASE_API || '/api'
+  const apiTarget = env.VITE_HOST_URL || 'http://127.0.0.1:8000'
   return {
     plugins: [vue()],
     base: './',
@@ -42,13 +43,13 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       open: false,
       hmr: true,
-      proxy: apiPrefix && env.VITE_HOST_URL ? {
+      proxy: {
         [apiPrefix]: {
-          target: env.VITE_HOST_URL,
+          target: apiTarget,
           changeOrigin: true,
           rewrite: path => path.startsWith(apiPrefix) ? path.slice(apiPrefix.length) : path
         }
-      } : undefined
+      }
     }
   }
 })
