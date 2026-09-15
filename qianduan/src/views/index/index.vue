@@ -16,8 +16,29 @@
       </div>
       <div class="system-state">
         <div class="clock"><strong>{{ clockTime }}</strong><small>{{ clockDate }}</small></div>
-        <div class="online"><i></i><span>双源数据已接入<br><small>VTEST4 / FITTING</small></span></div>
-        <button class="import-data-trigger" type="button" @click="openImportModal">
+        <div v-if="backendStatus === 'checking'" class="online checking">
+          <i></i><span>正在连接后端服务…<br><small>127.0.0.1:8000</small></span>
+        </div>
+        <div v-else-if="backendStatus === 'unavailable'" class="online error" title="后端服务离线">
+          <i style="background: #ff5252; box-shadow: 0 0 8px #ff5252;"></i>
+          <span>后端服务未连接<br><small>点击重试检测</small></span>
+          <button class="health-retry-btn" type="button" title="重新检测后端服务" @click="performHealthCheck">↻</button>
+        </div>
+        <div v-else-if="backendStatus === 'model_not_ready'" class="online warning" title="模型权重未就绪">
+          <i style="background: #ffb100; box-shadow: 0 0 8px #ffb100;"></i>
+          <span>模型尚未就绪<br><small>{{ backendMessage }}</small></span>
+          <button class="health-retry-btn" type="button" title="重新检测" @click="performHealthCheck">↻</button>
+        </div>
+        <div v-else class="online">
+          <i></i><span>{{ store.isDynamic ? '真实推理已生效' : '后端及模型已就绪' }}<br><small>{{ store.isDynamic ? ('RUN: ' + store.activeRun) : '内置基准数据' }}</small></span>
+        </div>
+        <button
+          class="import-data-trigger"
+          type="button"
+          :disabled="backendStatus !== 'ready'"
+          :title="backendStatus !== 'ready' ? ('服务未就绪：' + backendMessage) : '导入随钻时序数据'"
+          @click="openImportModal"
+        >
           <span class="import-trigger-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M12 3v11m0-11L8 7m4-4 4 4M5 13v6h14v-6" /></svg>
           </span>
@@ -166,8 +187,18 @@
           </div>
           <div class="scene-data-strip">
             <div><span>当前断面 / 钻孔</span><strong>{{ selectedSectionId }}组 X={{ formatSigned(selectedSpatialGroup?.longitudinalM) }}m · {{ selectedSpatialBorehole?.id || '--' }}</strong></div>
+            <div>
+              <span>当前断面 / 钻孔</span>
+              <strong>
+                {{ selectedSectionId }}组 X={{ formatSigned(selectedSpatialGroup?.longitudinalM) }}m · {{ selectedSpatialBorehole?.id || '--' }}
+                <small :style="{ color: selectedSpatialBorehole?.isCurrentRun ? '#42dcff' : '#8faab8', fontSize: '11px', marginLeft: '4px' }">
+                  [{{ selectedSpatialBorehole?.isCurrentRun ? '本次任务' : '基准参考' }}]
+                </small>
+              </strong>
+            </div>
             <div><span>径向分析深度</span><strong>{{ analysisDepth.toFixed(1) }} cm</strong></div>
             <div><span>实测 / 反演应力</span><strong>{{ formatValue(currentSpatialSample?.trueStressMpa, 0) }} / {{ formatValue(currentSpatialSample?.stressMpa, 0) }} MPa</strong></div>
+            <div><span>实测 / 反演应力</span><strong>{{ currentSpatialSample?.trueStressMpa != null ? formatValue(currentSpatialSample?.trueStressMpa, 0) : 'N/A' }} / {{ formatValue(currentSpatialSample?.stressMpa, 0) }} MPa</strong></div>
             <div><span>反演损伤 / 置信度</span><strong>{{ formatValue(currentSpatialSample?.damagePct, 0) }}% / {{ formatValue((currentSpatialSample?.confidence || 0) * 100, 1) }}%</strong></div>
           </div>
         </div>
@@ -233,24 +264,24 @@
           <PanelTitle code="04" title="模型反演精度" sub="MODEL ACCURACY" />
           <div class="damage-viz">
             <div class="accuracy-gauges">
-              <div class="gauge-ring damage-gauge" :style="{ '--pct': activeModel?.damage_accuracy * 100 }">
-                <span>{{ ((activeModel?.damage_accuracy || 0) * 100).toFixed(1) }}%</span>
+              <div class="gauge-ring damage-gauge" :style="{ '--pct': (activeModel?.damage_accuracy ?? 0) * 100 }">
+                <span>{{ activeModel?.damage_accuracy != null ? ((activeModel.damage_accuracy * 100).toFixed(1) + '%') : 'N/A' }}</span>
                 <small>损伤</small>
               </div>
-              <div class="gauge-ring stress-gauge" :style="{ '--pct': activeModel?.stress_accuracy * 100 }">
-                <span>{{ ((activeModel?.stress_accuracy || 0) * 100).toFixed(1) }}%</span>
+              <div class="gauge-ring stress-gauge" :style="{ '--pct': (activeModel?.stress_accuracy ?? 0) * 100 }">
+                <span>{{ activeModel?.stress_accuracy != null ? ((activeModel.stress_accuracy * 100).toFixed(1) + '%') : 'N/A' }}</span>
                 <small>应力</small>
               </div>
-              <div class="gauge-ring state-gauge" :style="{ '--pct': activeModel?.macro_f1 * 100 }">
-                <span>{{ ((activeModel?.macro_f1 || 0) * 100).toFixed(1) }}%</span>
+              <div class="gauge-ring state-gauge" :style="{ '--pct': (activeModel?.macro_f1 ?? 0) * 100 }">
+                <span>{{ activeModel?.macro_f1 != null ? ((activeModel.macro_f1 * 100).toFixed(1) + '%') : 'N/A' }}</span>
                 <small>宏F1</small>
               </div>
             </div>
           </div>
           <div class="zone-legend">
-            <div><i class="plastic-color"></i><span>损伤准确率</span><strong>{{ ((activeModel?.damage_accuracy || 0) * 100).toFixed(1) }}%</strong></div>
-            <div><i class="damage-color"></i><span>应力准确率</span><strong>{{ ((activeModel?.stress_accuracy || 0) * 100).toFixed(1) }}%</strong></div>
-            <div><i class="elastic-color"></i><span>状态宏 F1</span><strong>{{ ((activeModel?.macro_f1 || 0) * 100).toFixed(1) }}%</strong></div>
+            <div><i class="plastic-color"></i><span>损伤准确率</span><strong>{{ activeModel?.damage_accuracy != null ? ((activeModel.damage_accuracy * 100).toFixed(1) + '%') : 'N/A (无真实标签)' }}</strong></div>
+            <div><i class="damage-color"></i><span>应力准确率</span><strong>{{ activeModel?.stress_accuracy != null ? ((activeModel.stress_accuracy * 100).toFixed(1) + '%') : 'N/A (无真实标签)' }}</strong></div>
+            <div><i class="elastic-color"></i><span>状态宏 F1</span><strong>{{ activeModel?.macro_f1 != null ? ((activeModel.macro_f1 * 100).toFixed(1) + '%') : 'N/A (无真实标签)' }}</strong></div>
           </div>
         </section>
 
@@ -261,10 +292,13 @@
           <div class="sensor-item" v-for="m in store.models" :key="m.id"
             :class="{ active: store.selectedModel === m.id }"
             @click="store.selectedModel = m.id">
-            <span><i :class="store.selectedModel === m.id ? 'active' : ''"></i>{{ m.name_en }}</span>
-            <strong>{{ (m.damage_accuracy * 100).toFixed(1) }}%</strong>
-            <em :class="m.stress_accuracy > 0.8 ? 'good' : 'normal'">{{ (m.stress_accuracy * 100).toFixed(1) }}%</em>
-            <b>{{ (m.macro_f1 * 100).toFixed(1) }}%</b>
+            <span>
+              <i :class="store.selectedModel === m.id ? 'active' : ''"></i>{{ m.name_en }}
+              <small v-if="store.isDynamic" style="font-size:10px; opacity:0.65; margin-left:2px;">{{ m.id === 'v3' ? '[本次]' : '[基准]' }}</small>
+            </span>
+            <strong>{{ m.damage_accuracy != null ? ((m.damage_accuracy * 100).toFixed(1) + '%') : 'N/A' }}</strong>
+            <em :class="(m.stress_accuracy || 0) > 0.8 ? 'good' : 'normal'">{{ m.stress_accuracy != null ? ((m.stress_accuracy * 100).toFixed(1) + '%') : 'N/A' }}</em>
+            <b>{{ m.macro_f1 != null ? ((m.macro_f1 * 100).toFixed(1) + '%') : 'N/A' }}</b>
           </div>
         </section>
 
@@ -345,81 +379,95 @@
             <div class="import-source-column">
               <div
                 class="file-drop-zone"
-                :class="{ dragging: isDraggingFile, filled: selectedImportFile }"
+                :class="{ dragging: isDraggingFile, filled: selectedRawFiles.length > 0 }"
                 @click="fileInput?.click()"
                 @dragover.prevent="isDraggingFile = true"
                 @dragleave.prevent="isDraggingFile = false"
                 @drop.prevent="handleFileDrop"
               >
-                <input ref="fileInput" type="file" accept=".csv,.xlsx,.json" @change="handleFileChange" />
+                <input ref="fileInput" type="file" accept=".csv,text/csv" multiple @change="handleFileChange" />
                 <div class="drop-visual">
                   <svg viewBox="0 0 48 48"><path d="M14 39h22a8 8 0 0 0 1-15.9A13 13 0 0 0 12.4 19 10 10 0 0 0 14 39Z"/><path d="M24 31V17m0 0-6 6m6-6 6 6"/></svg>
                   <i></i><i></i><i></i>
                 </div>
-                <template v-if="!selectedImportFile">
-                  <strong>拖拽数据文件至此处</strong>
-                  <p>或点击浏览本地文件</p>
-                  <button type="button" tabindex="-1">选择数据文件</button>
+                <template v-if="selectedRawFiles.length === 0">
+                  <strong>拖拽 11 个钻孔数据文件至此处</strong>
+                  <p>或点击浏览，支持按住 Ctrl/Shift 一次性选择全批次 CSV</p>
+                  <button type="button" tabindex="-1">选择批次 CSV 文件</button>
                 </template>
                 <template v-else>
-                  <strong>{{ selectedImportFile.name }}</strong>
-                  <p>{{ selectedImportFile.size }} · 等待接入</p>
+                  <strong>{{ selectedImportFile?.name }}</strong>
+                  <p>{{ selectedImportFile?.size }} · 已按标准钻孔顺序排列 · 等待接入</p>
                   <button type="button" tabindex="-1">更换文件</button>
                 </template>
               </div>
               <div class="format-support">
                 <span>支持格式</span>
-                <b>CSV</b><b>XLSX</b><b>JSON</b>
-                <em>单文件 ≤ 50 MB</em>
+                <b>CSV 随钻时序数据</b>
+                <em>标准批次 11 孔 (S00~S99) · 请勿上传 .xlsx · 单文件 ≤ 50 MB</em>
               </div>
-              <button v-if="!selectedImportFile" class="demo-file-button" type="button" @click="useDemoFile">
-                <span>◎</span><p>载入示例数据<small>VTEST_S60 · 12,480 RECORDS</small></p><em>→</em>
+              <button v-if="selectedRawFiles.length === 0" class="demo-file-button" type="button" @click="useDemoBatch">
+                <span>◎</span><p>载入黄金测试批次（11个CSV）<small>VTEST_S00 ~ S99 · 全断面 11 孔实测时序</small></p><em>→</em>
               </button>
               <div v-else class="file-validation-card">
                 <span class="validation-icon">✓</span>
-                <p><strong>文件格式校验通过</strong><small>检测到 12,480 条记录 · 9 个字段</small></p>
-                <em>READY</em>
+                <p>
+                  <strong>批次已就绪 ({{ selectedRawFiles.length }}/11)</strong>
+                  <small>{{ selectedRawFiles.map(f => f.name).join(', ') }}</small>
+                </p>
+                <em>{{ selectedRawFiles.length === 11 ? 'FULL BATCH' : 'BATCH READY' }}</em>
               </div>
+              <p v-if="importError && importStatus === 'idle'" style="color: #ff5252; font-size: 12px; margin-top: 8px;">{{ importError }}</p>
             </div>
 
             <div class="import-config-column">
               <div class="config-heading"><span>接入配置</span><small>INGESTION SETTINGS</small></div>
               <label class="config-field">
                 <span>数据类型<small>DATA TYPE</small></span>
-                <select v-model="importConfig.dataType"><option>随钻时序数据</option><option>模型预测结果</option><option>钻孔空间信息</option></select>
+                <select v-model="importConfig.dataType" disabled title="首版固定支持随钻时序数据"><option>随钻时序数据 (V3-Full)</option></select>
               </label>
               <label class="config-field">
                 <span>目标数据集<small>TARGET DATASET</small></span>
-                <select v-model="importConfig.dataset"><option>Vtest4 感知数据</option><option>新建实验数据集</option></select>
+                <select v-model="importConfig.dataset" disabled title="系统自动绑定感知数据流"><option>Vtest4 感知数据</option></select>
               </label>
               <div class="field-mapping">
                 <div class="mapping-head"><span>字段映射预览</span><small>AUTO MATCHED</small></div>
                 <div><code>depth_cm</code><i>→</i><span>钻进深度</span><em>cm</em></div>
                 <div><code>torque_nm</code><i>→</i><span>钻进扭矩</span><em>N·m</em></div>
+                <div><code>thrust_kn</code><i>→</i><span>钻进推力</span><em>kN</em></div>
                 <div><code>stress_mpa</code><i>→</i><span>孔内应力</span><em>MPa</em></div>
                 <button type="button">查看全部 9 个字段 <span>↗</span></button>
               </div>
               <label class="switch-setting">
-                <span><strong>首行作为字段名称</strong><small>自动识别 CSV / XLSX 表头</small></span>
+                <span><strong>首行作为字段名称</strong><small>自动识别 CSV 表头</small></span>
                 <input v-model="importConfig.useHeader" type="checkbox" /><i></i>
               </label>
             </div>
           </div>
 
           <div v-if="importStatus !== 'idle'" class="import-progress" :class="importStatus">
-            <div><span>{{ importStatus === 'success' ? '数据预检完成' : importStage }}</span><strong>{{ importProgress }}%</strong></div>
+            <div>
+              <span>{{ importStatus === 'success' ? '全批次反演完成并已载入看板' : importStatus === 'error' ? '接入或推理异常' : importStage }}</span>
+              <strong>{{ importProgress }}%</strong>
+            </div>
             <i><b :style="{ width: `${importProgress}%` }"></b></i>
-            <p>{{ importStatus === 'success' ? '演示导入已完成，当前看板数据保持不变' : '正在构建数据索引与字段映射，请稍候…' }}</p>
+            <p v-if="importStatus === 'error'" style="color: #ff6b6b; font-weight: bold;">{{ importError }}</p>
+            <p v-else-if="importStatus === 'success'" style="color: #42dcff;">已完成全批次 V3-Full 模型状态反演！全断面 11 个钻孔与空间孪生场已全部同步更新。</p>
+            <p v-else>{{ importStage }}，请稍候…</p>
           </div>
 
           <footer class="import-dialog-footer">
-            <div class="demo-notice"><span>i</span><p>当前为功能展示模式<small>不会覆盖或写入现有数据</small></p></div>
-            <button class="cancel-import" type="button" @click="closeImportModal">取消</button>
-            <button class="confirm-import" type="button" :disabled="!selectedImportFile || importStatus === 'processing'" @click="simulateImport">
+            <div class="demo-notice">
+              <span>i</span>
+              <p>端到端真实推理模式<small>后端 V3-Full 物理融合模型批次推理驱动全断面钻孔</small></p>
+            </div>
+            <button class="cancel-import" type="button" @click="closeImportModal">关闭</button>
+            <button class="confirm-import" type="button" :disabled="backendStatus !== 'ready' || selectedRawFiles.length === 0 || importStatus === 'processing'" @click="startRealImport">
               <span v-if="importStatus === 'processing'" class="button-spinner"></span>
               <span v-else-if="importStatus === 'success'">✓</span>
+              <span v-else-if="importStatus === 'error'">↺</span>
               <span v-else>↥</span>
-              {{ importStatus === 'processing' ? '正在接入' : importStatus === 'success' ? '预检完成' : '开始导入' }}
+              {{ importStatus === 'processing' ? '正在分析' : importStatus === 'success' ? '重新分析' : importStatus === 'error' ? '重试' : '开始导入' }}
             </button>
           </footer>
         </section>
@@ -432,6 +480,7 @@
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import RockCloud3D from '@/components/RockCloud3D.vue'
 import { useDrillingStore } from '@/stores/drillingData.js'
+import { checkHealth, createRun, getRunStatus, getRunResult } from '@/api/inference.js'
 
 const PanelTitle = defineComponent({
   props: ['code', 'title', 'sub'],
@@ -457,22 +506,71 @@ const cloudSample = ref({ borehole: null, sample: null })
 const findingIndex = ref(0)
 const findingTimer = ref(null)
 
+// ---- backend health check gate (P1-4) ----
+const backendStatus = ref('checking') // 'checking' | 'ready' | 'unavailable' | 'model_not_ready'
+const backendMessage = ref('正在连接分析服务...')
+
+async function performHealthCheck() {
+  backendStatus.value = 'checking'
+  backendMessage.value = '正在核验后端服务与模型状态...'
+  try {
+    const health = await checkHealth()
+    if (health && health.status === 'ok' && health.model_ready) {
+      backendStatus.value = 'ready'
+      backendMessage.value = '后端服务与 V3-Full 模型就绪'
+    } else if (health && !health.model_ready) {
+      backendStatus.value = 'model_not_ready'
+      backendMessage.value = health.message || '模型权重尚未就绪'
+    } else {
+      backendStatus.value = 'unavailable'
+      backendMessage.value = '后端返回异常状态'
+    }
+  } catch (err) {
+    backendStatus.value = 'unavailable'
+    backendMessage.value = '无法连接后端服务 (127.0.0.1:8000)'
+  }
+}
+
 // ---- import data showcase ----
+// ---- import data showcase (Batch 11 CSV support) ----
+const CANONICAL_BATCH_LIST = [
+  { fileName: 'VTEST_S00.csv', borehole: 'BH-01', order: 0 },
+  { fileName: 'VTEST_S00_1.csv', borehole: 'BH-11', order: 1 },
+  { fileName: 'VTEST_S10.csv', borehole: 'BH-02', order: 2 },
+  { fileName: 'VTEST_S10_1.csv', borehole: 'BH-10', order: 3 },
+  { fileName: 'VTEST_S20.csv', borehole: 'BH-03', order: 4 },
+  { fileName: 'VTEST_S20_1.csv', borehole: 'BH-09', order: 5 },
+  { fileName: 'VTEST_S30.csv', borehole: 'BH-04', order: 6 },
+  { fileName: 'VTEST_S30_1.csv', borehole: 'BH-08', order: 7 },
+  { fileName: 'VTEST_S40.csv', borehole: 'BH-05', order: 8 },
+  { fileName: 'VTEST_S40_1.csv', borehole: 'BH-07', order: 9 },
+  { fileName: 'VTEST_S99.csv', borehole: 'BH-06', order: 10 },
+]
+
 const importModalOpen = ref(false)
 const fileInput = ref(null)
 const selectedImportFile = ref(null)
+const selectedRawFiles = ref([])
+const selectedRawFile = ref(null)
 const isDraggingFile = ref(false)
-const importStatus = ref('idle')
+const importStatus = ref('idle') // idle | processing | success | error
 const importProgress = ref(0)
-const importStage = ref('正在校验数据结构')
-const importTimer = ref(null)
+const importStage = ref('正在准备接入数据')
+const importError = ref('')
+const importPollTimer = ref(null)
 const importConfig = ref({
-  dataType: '随钻时序数据',
+  dataType: '随钻时序数据 (V3-Full)',
   dataset: 'Vtest4 感知数据',
   useHeader: true
 })
 
+let pollTimeoutId = null
+let isPollingActive = false
+
 function openImportModal() {
+  if (backendStatus.value !== 'ready') {
+    performHealthCheck()
+  }
   importModalOpen.value = true
 }
 
@@ -487,52 +585,194 @@ function formatFileSize(bytes) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-function selectImportFile(file) {
-  if (!file) return
-  selectedImportFile.value = { name: file.name, size: formatFileSize(file.size) }
+function selectImportFiles(files) {
+  if (!files) return
+  importError.value = ''
+
+  const rawList = Array.isArray(files) ? files : Array.from(files)
+  if (rawList.length === 0) return
+
+  // Check for any xlsx files
+  const xlsxFiles = rawList.filter(f => (f.name || '').toLowerCase().endsWith('.xlsx'))
+  if (xlsxFiles.length > 0) {
+    importError.value = `已自动排除 ${xlsxFiles.length} 个 Excel 文件 (${xlsxFiles.map(f => f.name).join(', ')})。请仅上传 .csv 文件`
+  }
+
+  // Filter for valid CSV files
+  const csvFiles = rawList.filter(f => (f.name || '').toLowerCase().endsWith('.csv'))
+  if (csvFiles.length === 0) {
+    if (!importError.value) {
+      importError.value = '未找到有效 CSV 随钻数据文件，系统仅支持标准 .csv 文件'
+    }
+    selectedRawFiles.value = []
+    selectedRawFile.value = null
+    selectedImportFile.value = null
+    return
+  }
+
+  // Size limit check
+  const oversized = csvFiles.find(f => f.size > 50 * 1024 * 1024)
+  if (oversized) {
+    importError.value = `文件 ${oversized.name} 大小超过 50 MB 限制`
+    selectedRawFiles.value = []
+    selectedRawFile.value = null
+    selectedImportFile.value = null
+    return
+  }
+
+  // Sort deterministically according to CANONICAL_BATCH_LIST
+  const sorted = [...csvFiles].sort((a, b) => {
+    const orderA = CANONICAL_BATCH_LIST.find(item => item.fileName.toLowerCase() === a.name.toLowerCase())?.order ?? 999
+    const orderB = CANONICAL_BATCH_LIST.find(item => item.fileName.toLowerCase() === b.name.toLowerCase())?.order ?? 999
+    return orderA - orderB
+  })
+
+  selectedRawFiles.value = sorted
+  selectedRawFile.value = sorted[0]
+  const totalSize = sorted.reduce((sum, f) => sum + f.size, 0)
+  selectedImportFile.value = {
+    name: sorted.length === 1 ? sorted[0].name : `批次共 ${sorted.length} 个钻孔数据文件`,
+    size: formatFileSize(totalSize),
+    count: sorted.length,
+  }
   importStatus.value = 'idle'
   importProgress.value = 0
 }
 
 function handleFileChange(event) {
-  selectImportFile(event.target.files?.[0])
+  selectImportFiles(event.target.files)
   event.target.value = ''
 }
 
 function handleFileDrop(event) {
   isDraggingFile.value = false
-  selectImportFile(event.dataTransfer?.files?.[0])
+  selectImportFiles(event.dataTransfer?.files)
 }
 
-function useDemoFile() {
-  selectedImportFile.value = { name: 'VTEST_S60_drilling.csv', size: '1.8 MB' }
-  importStatus.value = 'idle'
-  importProgress.value = 0
+async function useDemoBatch() {
+  try {
+    importError.value = ''
+    importStage.value = '正在加载 11 孔黄金测试批次数据包...'
+    const filePromises = CANONICAL_BATCH_LIST.map(async item => {
+      const resp = await fetch(`${import.meta.env.BASE_URL}data/golden_batch/${item.fileName}`)
+      if (!resp.ok) throw new Error(`加载 ${item.fileName} 失败 (HTTP ${resp.status})`)
+      const blob = await resp.blob()
+      return new File([blob], item.fileName, { type: 'text/csv' })
+    })
+    const files = await Promise.all(filePromises)
+    selectImportFiles(files)
+  } catch (err) {
+    console.warn('Failed to load golden batch:', err)
+    importError.value = `无法载入黄金测试批次: ${err.message}`
+  }
+}
+const useDemoFile = useDemoBatch
+
+function stopImportPoll() {
+  if (importPollTimer.value) {
+    window.clearInterval(importPollTimer.value)
+    importPollTimer.value = null
+  }
+  if (pollTimeoutId) {
+    window.clearTimeout(pollTimeoutId)
+    pollTimeoutId = null
+  }
+  isPollingActive = false
 }
 
-function stopImportSimulation() {
-  if (importTimer.value) {
-    window.clearInterval(importTimer.value)
-    importTimer.value = null
+// P2-10: Sequential non-overlapping status polling loop
+async function pollTaskStatus(runId) {
+  if (!isPollingActive) return
+  try {
+    const statusRes = await getRunStatus(runId)
+    if (!isPollingActive) return
+
+    importProgress.value = statusRes.progress
+    importStage.value = statusRes.message
+
+    if (statusRes.status === 'succeeded') {
+      stopImportPoll()
+      importStage.value = '正在拉取推理结果并注入前端数字孪生看板...'
+      const resultRes = await getRunResult(runId)
+      store.applyAnalysisResult(resultRes)
+      importStatus.value = 'success'
+      importProgress.value = 100
+      importStage.value = '全批次 V3-Full 模型反演完成！看板全断面指标与三维孪生场已同步更新'
+      try {
+        sessionStorage.setItem('szic_last_run_id', runId)
+      } catch {}
+    } else if (statusRes.status === 'failed') {
+      stopImportPoll()
+      importStatus.value = 'error'
+      importError.value = statusRes.error || statusRes.message || '后端推理执行失败'
+    } else {
+      pollTimeoutId = window.setTimeout(() => pollTaskStatus(runId), 600)
+    }
+  } catch (pollErr) {
+    if (!isPollingActive) return
+    stopImportPoll()
+    importStatus.value = 'error'
+    importError.value = `任务状态查询异常: ${pollErr.message}`
   }
 }
 
-function simulateImport() {
-  if (!selectedImportFile.value || importStatus.value === 'processing') return
-  stopImportSimulation()
-  importStatus.value = 'processing'
-  importProgress.value = 6
-  importStage.value = '正在校验数据结构'
-  importTimer.value = window.setInterval(() => {
-    const next = Math.min(100, importProgress.value + Math.ceil(Math.random() * 8))
-    importProgress.value = next
-    if (next >= 72) importStage.value = '正在构建字段映射'
-    else if (next >= 38) importStage.value = '正在扫描数据记录'
-    if (next >= 100) {
-      stopImportSimulation()
-      importStatus.value = 'success'
+async function startRealImport() {
+  if (backendStatus.value !== 'ready') {
+    await performHealthCheck()
+    if (backendStatus.value !== 'ready') {
+      importError.value = `后端服务未就绪: ${backendMessage.value}`
+      importStatus.value = 'error'
+      return
     }
-  }, 160)
+  }
+
+  if (!selectedRawFiles.value.length || importStatus.value === 'processing') return
+  stopImportPoll()
+  importError.value = ''
+  importStatus.value = 'processing'
+  importProgress.value = 5
+  importStage.value = `正在连接后端服务并核验模型就绪状态...`
+
+  try {
+    // 1. Health check
+    const health = await checkHealth()
+    if (!health.model_ready) {
+      throw new Error(`模型尚未就绪: ${health.message || '模型权重未加载'}`)
+    }
+
+    // 2. Upload and create batch task
+    importProgress.value = 8
+    importStage.value = `正在上传 ${selectedRawFiles.value.length} 个钻孔 CSV 随钻数据并创建批次任务...`
+    const runResp = await createRun(selectedRawFiles.value)
+    const runId = runResp.run_id
+
+    // 3. Start sequential polling
+    isPollingActive = true
+    pollTaskStatus(runId)
+  } catch (err) {
+    stopImportPoll()
+    importStatus.value = 'error'
+    importError.value = err.message || '数据接入发生异常'
+  }
+}
+
+// Alias for compatibility
+const simulateImport = startRealImport
+// P2-11: Refresh restoration
+async function tryRestoreLastRun() {
+  try {
+    const savedRunId = sessionStorage.getItem('szic_last_run_id')
+    if (!savedRunId) return
+    const statusRes = await getRunStatus(savedRunId)
+    if (statusRes && statusRes.status === 'succeeded') {
+      const resultRes = await getRunResult(savedRunId)
+      store.applyAnalysisResult(resultRes)
+    } else {
+      sessionStorage.removeItem('szic_last_run_id')
+    }
+  } catch (err) {
+    sessionStorage.removeItem('szic_last_run_id')
+  }
 }
 
 function handleImportKeydown(event) {
@@ -753,13 +993,15 @@ onMounted(async () => {
   window.addEventListener('keydown', handleImportKeydown)
   await store.loadAll()
   startEvolution()
+  await performHealthCheck()
+  await tryRestoreLastRun()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleImportKeydown)
   window.clearInterval(clockTimer)
   stopEvolution()
-  stopImportSimulation()
+  stopImportPoll()
   if (findingTimer.value) window.clearInterval(findingTimer.value)
 })
 </script>
@@ -1793,6 +2035,23 @@ onBeforeUnmount(() => {
 .confirm-import > span { display: inline-block; margin-right: 5px; color: var(--gold); }
 .button-spinner { width: 10px; height: 10px; vertical-align: -2px; border: 1px solid rgba(122, 205, 218, .25); border-top-color: #7dcdda; border-radius: 50%; animation: importSpin .7s linear infinite; }
 @keyframes importSpin { to { transform: rotate(360deg); } }
+.health-retry-btn {
+  margin-left: 6px;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .25);
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: .2s;
+  &:hover { background: rgba(255, 255, 255, .25); border-color: rgba(255, 255, 255, .5); }
+}
+.import-data-trigger:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+  filter: grayscale(0.8);
+}
 
 .import-modal-enter-active, .import-modal-leave-active { transition: opacity .22s ease; }
 .import-modal-enter-active .import-dialog, .import-modal-leave-active .import-dialog { transition: opacity .22s ease, transform .22s ease; }

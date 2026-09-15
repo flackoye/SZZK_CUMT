@@ -1,11 +1,68 @@
+# Dependencies and package-manager caches
 node_modules/
-dist/
-.local-tools/
 .pnpm-store/
-*.log
+.npm/
+.yarn/
+.local-tools/
+
+# Build output and tool caches
+dist/
+dist-ssr/
+build/
+.vite/
+.cache/
+coverage/
+htmlcov/
+*.tsbuildinfo
+.eslintcache
+
+# Local environment and secrets (commit example files only)
 .env
 .env.*
 !.env.example
-__pycache__/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python environments, bytecode, tests, and packaging
 .venv/
-*.pyc
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.ipynb_checkpoints/
+.tox/
+.nox/
+.coverage
+.coverage.*
+*.egg-info/
+
+# Backend task data: uploads, predictions, logs, and result snapshots
+backend/runtime/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+
+# IDE and operating-system metadata
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini

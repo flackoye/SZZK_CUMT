@@ -1,0 +1,2 @@
+"""SZIC Backend API Package."""
+

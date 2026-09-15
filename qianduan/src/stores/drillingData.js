@@ -21,6 +21,11 @@ export const useDrillingStore = defineStore('drillingData', () => {
   const selectedBoreholeId = ref('BH-01')
   const selectedExperimentId = ref(null)
 
+  const activeRun = ref(null)
+  const isDynamic = ref(false)
+  const analysisResult = ref(null)
+  const dynamicKpis = ref(null)
+
   // ---- actions ----
   async function loadSummary() {
     if (loaded.value || loading.value) return
@@ -223,11 +228,127 @@ export const useDrillingStore = defineStore('drillingData', () => {
     return activeBorehole.value?.samples || []
   })
 
+  const sourceRunId = ref(null)
+
+  function applyAnalysisResult(result) {
+    if (!result) return
+    const runId = result.run_id || result.sourceRunId
+    activeRun.value = runId
+    sourceRunId.value = runId
+    analysisResult.value = result
+    isDynamic.value = true
+    dynamicKpis.value = result.kpis
+
+    // Automatically switch to V3 model to display the new inference results
+    selectedModel.value = 'v3'
+
+    // 1. Update V3 model accuracy in ringCloud.meta.models, isolate V1/V2 (P0-3)
+    if (ringCloud.value?.meta?.models) {
+      ringCloud.value.meta.models.forEach(m => {
+        if (m.id === 'v3') {
+          m.damageAccuracy = result.model.damage_accuracy
+          m.stressAccuracy = result.model.stress_accuracy
+          m.macroF1 = result.model.macro_f1
+          m.confidence = result.model.confidence
+          m.isCurrentRun = true
+          m.hasGroundTruth = result.model.has_ground_truth
+        } else {
+          m.isCurrentRun = false
+        }
+      })
+    }
+
+    // 2. Update summary.models if present, isolate V1/V2 (P0-3)
+    if (summary.value?.models) {
+      summary.value.models.forEach(m => {
+        if (m.id === 'v3') {
+          m.damage_accuracy = result.model.damage_accuracy
+          m.stress_accuracy = result.model.stress_accuracy
+          m.macro_f1 = result.model.macro_f1
+          m.confidence = result.model.confidence
+          m.isCurrentRun = true
+          m.has_ground_truth = result.model.has_ground_truth
+        } else {
+          m.isCurrentRun = false
+        }
+      })
+    }
+
+    // 3. Atomically replace 3D spatial roadway (P0-2)
+    if (result.spatialRoadway) {
+      spatialRoadway.value = result.spatialRoadway
+      if (result.spatialRoadway.meta?.activeBoreholeId) {
+        selectedBoreholeId.value = result.spatialRoadway.meta.activeBoreholeId
+      }
+    }
+
+    // 4. Update ringCloud boreholes with newly inferred time-series points (P0-3: Only update v3)
+    if (result.files && Array.isArray(result.files) && ringCloud.value?.boreholes) {
+      result.files.forEach(f => {
+        const targetHole = ringCloud.value.boreholes.find(h =>
+          h.id === f.borehole_id ||
+          (h.sourceFile && f.file_name && h.sourceFile.toLowerCase() === f.file_name.toLowerCase()) ||
+          h.surfaceIndex === f.surfaceIndex
+        )
+        if (targetHole && f.series && f.series.length > 0) {
+          targetHole.samples = f.series.map((item, idx) => ({
+            depth: item.depth,
+            sample: item.sample ?? idx,
+            torque: item.torque,
+            thrust: item.thrust,
+            actualDamage: item.true_damage ?? null,
+            actualStress: item.true_stress ?? null,
+            actualState: item.state,
+            predictions: {
+              v1: { damage: null, stress: null, confidence: null, state: '历史基准对比 (本次未运行)', notRun: true },
+              v2: { damage: null, stress: null, confidence: null, state: '历史消融基准 (本次未运行)', notRun: true },
+              v3: { damage: item.damage, stress: item.stress, confidence: item.confidence, state: item.state, outlier: false }
+            }
+          }))
+          targetHole.isCurrentRun = true
+          targetHole.runId = runId
+          targetHole.metrics = f.metrics
+        }
+      })
+    } else if (result.series && result.series.length > 0 && activeBorehole.value) {
+      // Single borehole fallback
+      activeBorehole.value.samples = result.series.map((item, idx) => ({
+        depth: item.depth,
+        sample: item.sample ?? idx,
+        torque: item.torque,
+        thrust: item.thrust,
+        actualDamage: item.true_damage ?? null,
+        actualStress: item.true_stress ?? null,
+        actualState: item.state,
+        predictions: {
+          v1: { damage: null, stress: null, confidence: null, state: '历史基准对比 (本次未运行)', notRun: true },
+          v2: { damage: null, stress: null, confidence: null, state: '历史消融基准 (本次未运行)', notRun: true },
+          v3: { damage: item.damage, stress: item.stress, confidence: item.confidence, state: item.state, outlier: false }
+        }
+      }))
+      activeBorehole.value.isCurrentRun = true
+      activeBorehole.value.runId = runId
+    }
+  }
+
+  async function resetToStaticData() {
+    activeRun.value = null
+    sourceRunId.value = null
+    isDynamic.value = false
+    analysisResult.value = null
+    dynamicKpis.value = null
+    loaded.value = false
+    await loadAll()
+  }
+
   return {
     summary, experiments, overallMetrics, byFileMetrics, telemetry, ringCloud, spatialRoadway,
     loaded, loading, error,
+    activeRun, isDynamic, analysisResult, dynamicKpis,
+    activeRun, sourceRunId, isDynamic, analysisResult, dynamicKpis,
     selectedStress, selectedModel, selectedBoreholeId, selectedExperimentId,
     loadSummary, loadExperimentManifest, loadMetrics, loadTelemetry, loadRingCloud, loadSpatialRoadway, loadAll,
+    applyAnalysisResult, resetToStaticData,
     activeModel, models, boreholes, activeBorehole, stressLevels, damageLevels,
     experimentStatsByDamage, experimentStatsByStress,
     filteredExperiments, stressFileMetrics, currentStressAccuracy,

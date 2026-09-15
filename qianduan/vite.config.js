@@ -10,8 +10,23 @@ export default defineConfig(({ mode }) => {
     resolve: { alias: { '@': '/src' } },
     css: {
       preprocessorOptions: {
-        scss: { additionalData: `@import './src/assets/style/base.scss';` }
+        scss: {
+          additionalData: `@import './src/assets/style/base.scss';`,
+          silenceDeprecations: ['legacy-js-api', 'import']
+        }
       }
+    },
+    optimizeDeps: {
+      include: [
+        'three',
+        'three/addons/controls/OrbitControls.js',
+        'three/addons/loaders/GLTFLoader.js',
+        'axios',
+        'pinia',
+        'vue-router',
+        'echarts',
+        'countup.js'
+      ]
     },
     build: {
       outDir: 'dist',
