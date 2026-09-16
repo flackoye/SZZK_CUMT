@@ -7,7 +7,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, runs
+from app.api import health, preview, runs
 from app.services.model_service import model_service
 
 logging.basicConfig(
@@ -45,6 +45,7 @@ app.add_middleware(
 
 # Register routes
 app.include_router(health.router)
+app.include_router(preview.router)
 app.include_router(runs.router)
 
 

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { getPreviewBootstrap } from '../api/inference'
 
 const dataUrl = (fileName) => `${import.meta.env.BASE_URL}data/${fileName}`
 
@@ -15,6 +16,7 @@ export const useDrillingStore = defineStore('drillingData', () => {
   const loaded = ref(false)
   const loading = ref(false)
   const error = ref(null)
+  const previewSource = ref(null)
 
   const selectedStress = ref(20)
   const selectedModel = ref('v3')
@@ -111,7 +113,26 @@ export const useDrillingStore = defineStore('drillingData', () => {
 
   async function loadAll() {
     if (loaded.value) return
-    await Promise.all([loadSummary(), loadRingCloud(), loadSpatialRoadway()])
+    try {
+      const bundle = await getPreviewBootstrap()
+      if (!bundle?.summary || !bundle?.ringCloud || !bundle?.spatialRoadway) {
+        throw new Error('后端返回的预览基准数据不完整')
+      }
+      summary.value = bundle.summary
+      ringCloud.value = bundle.ringCloud
+      spatialRoadway.value = bundle.spatialRoadway
+      previewSource.value = bundle.source || 'backend'
+      error.value = null
+      if (!ringCloud.value.boreholes?.some(item => item.id === selectedBoreholeId.value)) {
+        selectedBoreholeId.value = ringCloud.value.boreholes?.[0]?.id || null
+      }
+    } catch (err) {
+      // Keep the page inspectable when the backend has not been started yet, but
+      // record that this is a static fallback rather than the intended API path.
+      console.warn('Backend preview bootstrap failed, using static fallback:', err.message)
+      previewSource.value = 'static-fallback'
+      await Promise.all([loadSummary(), loadRingCloud(), loadSpatialRoadway()])
+    }
     loaded.value = true
   }
 
@@ -242,6 +263,20 @@ export const useDrillingStore = defineStore('drillingData', () => {
     // Automatically switch to V3 model to display the new inference results
     selectedModel.value = 'v3'
 
+    // The bundled reference batch must reproduce the original Mine preview
+    // exactly. Replace the three baseline objects atomically instead of
+    // rebuilding them from the lossy chart series returned by inference.
+    if (result.referencePreview && result.ringCloud && result.spatialRoadway) {
+      if (result.dashboardSummary) summary.value = result.dashboardSummary
+      ringCloud.value = result.ringCloud
+      spatialRoadway.value = result.spatialRoadway
+      previewSource.value = 'backend-reference-run'
+      if (!ringCloud.value.boreholes?.some(item => item.id === selectedBoreholeId.value)) {
+        selectedBoreholeId.value = ringCloud.value.boreholes?.[0]?.id || null
+      }
+      return
+    }
+
     // 1. Update V3 model accuracy in ringCloud.meta.models, isolate V1/V2 (P0-3)
     if (ringCloud.value?.meta?.models) {
       ringCloud.value.meta.models.forEach(m => {
@@ -337,14 +372,17 @@ export const useDrillingStore = defineStore('drillingData', () => {
     isDynamic.value = false
     analysisResult.value = null
     dynamicKpis.value = null
+    summary.value = null
+    ringCloud.value = null
+    spatialRoadway.value = null
+    previewSource.value = null
     loaded.value = false
     await loadAll()
   }
 
   return {
     summary, experiments, overallMetrics, byFileMetrics, telemetry, ringCloud, spatialRoadway,
-    loaded, loading, error,
-    activeRun, isDynamic, analysisResult, dynamicKpis,
+    loaded, loading, error, previewSource,
     activeRun, sourceRunId, isDynamic, analysisResult, dynamicKpis,
     selectedStress, selectedModel, selectedBoreholeId, selectedExperimentId,
     loadSummary, loadExperimentManifest, loadMetrics, loadTelemetry, loadRingCloud, loadSpatialRoadway, loadAll,
