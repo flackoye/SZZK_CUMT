@@ -16,6 +16,14 @@ export async function checkHealth() {
 }
 
 /**
+ * 获取原始 Mine 预览使用的完整基准数据。数据由后端统一提供。
+ */
+export async function getPreviewBootstrap() {
+  const resp = await apiClient.get('/preview/bootstrap')
+  return resp.data
+}
+
+/**
  * 上传批次 CSV (或单文件) 并创建异步推理任务
  * @param {File|File[]} files
  * @param {object|string|null} manifest

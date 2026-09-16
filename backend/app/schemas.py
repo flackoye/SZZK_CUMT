@@ -55,6 +55,10 @@ class RunResultResponse(BaseModel):
     kpis: Dict[str, Any]
     series: List[Dict[str, Any]]
     spatialRoadway: Optional[Dict[str, Any]] = None
+    ringCloud: Optional[Dict[str, Any]] = None
+    dashboardSummary: Optional[Dict[str, Any]] = None
+    referencePreview: bool = False
+    previewProfile: Optional[str] = None
     files: Optional[List[Dict[str, Any]]] = None
     overall_metrics: Optional[Dict[str, Any]] = None
     artifacts: Dict[str, str]
